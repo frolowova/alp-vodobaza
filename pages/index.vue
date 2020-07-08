@@ -1,7 +1,7 @@
 <template>
-  <!-- <div class="v-app"> -->
   <div class="page">
-    <div class="page__wrapp">
+    <div class="page__loader" v-if="loaderPage">Идёт загрузка данных с сервера...</div>
+    <div class="page__wrapp" v-else>
       <div class="header">
         <div class="header__title">
           <h2>Заказ воды</h2>
@@ -19,6 +19,7 @@
           ></v-select>
           <v-select
             :items="waterBases"
+            v-model="selectedBase"
             :rules="[v => !!v || 'Выберите водобазу']"
             label="Водобаза"
             required
@@ -53,9 +54,15 @@
           </div>
         </v-form>
       </div>
-    </div>
-    <div class="submit-form">
-      <v-btn color="green">Отправить</v-btn>
+      <div class="submit-form">
+        <v-btn
+          color="green"
+          @click="sendFormToServer()"
+          :loading="loading"
+          :disabled="loading || !validForm()"
+        >Отправить</v-btn>
+      </div>
+      <div class="sendOk" v-if="sendOk">Данные были успешно отправлены</div>
     </div>
   </div>
 </template>
@@ -68,14 +75,18 @@ export default {
       picker: new Date().toISOString().substr(0, 10),
       tonsRules: [v => !!v || "Введите тонаж", v => (v = this.validTonas(v))],
       adressRules: [
-        v => !!v || "Адресс не введён",
+        v => !!v || "Адрес не введён",
         v =>
           (v && v.length >= 3) ||
-          "Разве это адрес? Укажите хотябы 3 буквы, а там мы дагадаемся"
+          "Разве это адрес? Укажите хотя бы 3 буквы, а там мы догадаемся"
       ],
       tons: 0,
       adress: "",
-      meRegion: ""
+      meRegion: "",
+      selectedBase: "",
+      loaderPage: true,
+      loading: false,
+      sendOk: false
     };
   },
   computed: {
@@ -107,7 +118,7 @@ export default {
       if (!navigator.geolocation) {
       } else {
         /*Так как нам сперва надо получить разрешение от пользователя
-		на доступ к геопозиции, то остальной код выполняем после этого*/
+		    на доступ к геопозиции, то остальной код выполняем после этого*/
         navigator.geolocation.getCurrentPosition(
           position => {
             let lat = position.coords.latitude;
@@ -141,6 +152,79 @@ export default {
       let ton = +v;
       if (typeof ton === "number" && ton != 0) return true;
       else return "Необходимо ввести цифры";
+    },
+    validForm() {
+      if (
+        this.tons > 0 &&
+        this.adress.length > 2 &&
+        this.meRegion &&
+        this.selectedBase
+      )
+        return true;
+      else return false;
+    },
+    getBasesWaterFromServer() {
+      fetch("https://testforbackend.000webhostapp.com/?name=dataRegionAndBases")
+        .then(response => response.json())
+        .then(json => {
+          console.log("Ответ с сервера");
+          console.log(json);
+          // Записываем полученные данные в store
+          this.$store.dispatch("addDataRegAndBW", json);
+          // Отображаем основное окно
+          this.loaderPage = false;
+          // Вызываем определение геопозиции, чтобы подставить в select необходимый регион
+          this.createPointPosition();
+        })
+        .catch(err => {
+          console.log(
+            "Произошла ошибка соединения с сервером. Попробуйте позже"
+          );
+        });
+    },
+    // Отправляем данные формы на сервер
+    sendFormToServer() {
+      this.loading = true; // Запускаем на кнопке лоадер, пока запрос не выполнится
+      const picker = this.picker;
+      const meRegion = this.meRegion;
+      const selectedBase = this.selectedBase;
+      const tons = this.tons;
+      const adress = this.adress;
+      const formData = {
+        date: picker,
+        select1: meRegion,
+        select2: selectedBase,
+        tons: tons,
+        adress: adress
+      };
+      // Запрос отправляем через прокси, чтобы не настраивать CORS (временное решение)
+      fetch(
+        "https://cors-anywhere.herokuapp.com/" +
+          "https://testforbackend.000webhostapp.com/",
+        {
+          method: "POST",
+          body: JSON.stringify(formData), // Объект в формате JSON
+          withCredentials: true,
+          headers: {
+            "Content-type": "application/json;charset=utf-8"
+          }
+        }
+      )
+        .then(response => {
+          console.log("Данные успешно отправлены на сервер");
+          // Отключить loader на кнопке
+          this.loading = false;
+          this.sendOk = true;
+          setTimeout(() => {
+            this.sendOk = false;
+          }, 4000);
+        })
+        .catch(err => {
+          console.log(
+            "Произошла ошибка соединения с сервером. Попробуйте позже"
+          );
+          this.loading = false;
+        });
     }
   },
   watch: {
@@ -149,8 +233,8 @@ export default {
       this.selectedRegion(newRegion);
     }
   },
-  mounted() {
-    this.createPointPosition();
+  created() {
+    this.getBasesWaterFromServer();
   }
 };
 </script>
@@ -172,5 +256,42 @@ export default {
   display: flex;
   justify-content: center;
   margin-top: 30px;
+}
+// Loading кнопки
+.custom-loader {
+  animation: loader 1s infinite;
+  display: flex;
+}
+@-moz-keyframes loader {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@-webkit-keyframes loader {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@-o-keyframes loader {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes loader {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
